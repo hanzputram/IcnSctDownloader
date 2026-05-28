@@ -68,6 +68,61 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         )
     )).scalar() or 0
 
+    # Calculate last 7 days trend (sparklines)
+    today_dt = datetime.datetime.utcnow()
+    dates = [(today_dt - datetime.timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0) for i in range(6, -1, -1)]
+    
+    tasks_trend = []
+    downloads_trend = []
+    accounts_trend = []
+    storage_trend = []
+    
+    for dt in dates:
+        dt_end = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # 1. Total tasks trend (created before or on this day)
+        tasks_cnt = (await db.execute(
+            select(func.count(DownloadTask.id)).where(DownloadTask.created_at <= dt_end)
+        )).scalar() or 0
+        tasks_trend.append(tasks_cnt)
+        
+        # 2. Downloads trend (completed before or on this day)
+        downloads_cnt = (await db.execute(
+            select(func.count(DownloadTask.id)).where(
+                and_(
+                    DownloadTask.status == TaskStatus.COMPLETED.value,
+                    DownloadTask.completed_at <= dt_end
+                )
+            )
+        )).scalar() or 0
+        downloads_trend.append(downloads_cnt)
+        
+        # 3. Active accounts trend (created before or on this day and active)
+        accounts_cnt = (await db.execute(
+            select(func.count(Account.id)).where(
+                and_(
+                    Account.status == AccountStatus.ACTIVE.value,
+                    Account.created_at <= dt_end
+                )
+            )
+        )).scalar() or 0
+        accounts_trend.append(accounts_cnt)
+        
+        # 4. Storage trend (cumulative MB up to this day)
+        size_bytes = (await db.execute(
+            select(func.sum(DownloadTask.file_size)).where(
+                and_(
+                    DownloadTask.file_size.isnot(None),
+                    DownloadTask.completed_at <= dt_end
+                )
+            )
+        )).scalar() or 0
+        size_mb = round(size_bytes / (1024 * 1024), 2)
+        storage_trend.append(size_mb)
+        
+    # Total logs
+    total_logs = (await db.execute(select(func.count(DownloadLog.id)))).scalar() or 0
+
     return {
         "total_tasks": total_tasks,
         "items_downloaded": items_downloaded,
@@ -79,6 +134,13 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
         "running_tasks": running_tasks,
         "total_size_mb": total_size_mb,
         "today_downloads": today_downloads,
+        "total_logs": total_logs,
+        "sparklines": {
+            "tasks": tasks_trend,
+            "downloads": downloads_trend,
+            "accounts": accounts_trend,
+            "storage": storage_trend
+        }
     }
 
 
@@ -181,3 +243,24 @@ async def get_recent_activity(
             for log in logs
         ]
     }
+
+
+@router.get("/bot-status")
+async def get_bot_status():
+    """Get global scheduler bot status."""
+    from services.scheduler import scheduler_service
+    status = "paused" if scheduler_service.is_paused else "running"
+    return {"status": status}
+
+
+@router.post("/bot-toggle")
+async def toggle_bot():
+    """Toggle global scheduler bot status (start/stop)."""
+    from services.scheduler import scheduler_service
+    if scheduler_service.is_paused:
+        scheduler_service.resume()
+        status = "running"
+    else:
+        scheduler_service.pause()
+        status = "paused"
+    return {"status": status, "message": f"Bot {status}"}

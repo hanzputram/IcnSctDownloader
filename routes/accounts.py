@@ -2,16 +2,19 @@
 Account management routes.
 """
 import datetime
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import config
 from database import get_db
 from models import Account, AccountStatus, DownloadLog, LogLevel
+
+logger = logging.getLogger("iconscout.routes.accounts")
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
@@ -23,6 +26,7 @@ class AccountCreate(BaseModel):
     password: str
     plan_type: str = "unlimited"
     proxy_url: Optional[str] = None
+    auto_proxy: bool = True  # Auto-assign proxy by default
 
 
 class AccountUpdate(BaseModel):
@@ -75,7 +79,7 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
 
 @router.post("")
 async def create_account(data: AccountCreate, db: AsyncSession = Depends(get_db)):
-    """Add a new IconScout account."""
+    """Add a new IconScout account with optional auto-proxy assignment."""
     # Check if email already exists
     existing = await db.execute(select(Account).where(Account.email == data.email))
     if existing.scalar_one_or_none():
@@ -85,21 +89,46 @@ async def create_account(data: AccountCreate, db: AsyncSession = Depends(get_db)
     fernet = config.get_fernet()
     encrypted_pw = fernet.encrypt(data.password.encode()).decode()
 
+    # Determine proxy
+    proxy_url = data.proxy_url if data.proxy_url else None
+
+    # Auto-assign proxy if requested and no manual proxy provided
+    if data.auto_proxy and not proxy_url:
+        try:
+            from services.proxy_manager import proxy_manager
+            # We need to flush the account first to get its ID, so we'll assign proxy after
+            proxy_url = None  # Will be assigned after account creation
+        except Exception as e:
+            logger.warning(f"Proxy manager not available: {e}")
+
     account = Account(
         email=data.email,
         encrypted_password=encrypted_pw,
         plan_type=data.plan_type,
         status=AccountStatus.ACTIVE.value,
-        proxy_url=data.proxy_url if data.proxy_url else None,
+        proxy_url=proxy_url,
     )
     db.add(account)
     await db.flush()
 
+    # Auto-assign proxy AFTER we have the account ID
+    assigned_proxy = None
+    if data.auto_proxy and not data.proxy_url:
+        try:
+            from services.proxy_manager import proxy_manager
+            assigned_proxy = await proxy_manager.auto_assign_proxy(account.id)
+            if assigned_proxy:
+                account.proxy_url = assigned_proxy
+                logger.info(f"Auto-assigned proxy {assigned_proxy} to account #{account.id}")
+        except Exception as e:
+            logger.warning(f"Auto-proxy assignment failed: {e}")
+
     # Log
+    proxy_msg = f" (Proxy: {assigned_proxy})" if assigned_proxy else ""
     log = DownloadLog(
         account_id=account.id,
         level=LogLevel.INFO.value,
-        message=f"Account added: {data.email}",
+        message=f"Account added: {data.email}{proxy_msg}",
     )
     db.add(log)
 
@@ -107,7 +136,8 @@ async def create_account(data: AccountCreate, db: AsyncSession = Depends(get_db)
         "id": account.id,
         "email": account.email,
         "status": account.status,
-        "message": "Account berhasil ditambahkan",
+        "proxy_url": account.proxy_url,
+        "message": f"Account berhasil ditambahkan{proxy_msg}",
     }
 
 
@@ -139,12 +169,19 @@ async def update_account(account_id: int, data: AccountUpdate, db: AsyncSession 
 
 @router.delete("/{account_id}")
 async def delete_account(account_id: int, db: AsyncSession = Depends(get_db)):
-    """Delete an account."""
+    """Delete an account and release its proxy."""
     result = await db.execute(select(Account).where(Account.id == account_id))
     account = result.scalar_one_or_none()
 
     if not account:
         raise HTTPException(status_code=404, detail="Account tidak ditemukan")
+
+    # Release proxy from pool
+    try:
+        from services.proxy_manager import proxy_manager
+        await proxy_manager.release_proxy(account_id)
+    except Exception as e:
+        logger.debug(f"Could not release proxy: {e}")
 
     await db.delete(account)
 
@@ -195,3 +232,42 @@ async def test_account(account_id: int, db: AsyncSession = Depends(get_db)):
     await browser_manager.close_browser(account.id)
 
     return login_result
+
+
+@router.post("/{account_id}/refresh-proxy")
+async def refresh_proxy(account_id: int, db: AsyncSession = Depends(get_db)):
+    """Rotate/refresh proxy for an account."""
+    result = await db.execute(select(Account).where(Account.id == account_id))
+    account = result.scalar_one_or_none()
+
+    if not account:
+        raise HTTPException(status_code=404, detail="Account tidak ditemukan")
+
+    try:
+        from services.proxy_manager import proxy_manager
+        new_proxy = await proxy_manager.rotate_proxy(account_id)
+
+        if new_proxy:
+            account.proxy_url = new_proxy
+            account.updated_at = datetime.datetime.utcnow()
+
+            log = DownloadLog(
+                account_id=account.id,
+                level=LogLevel.INFO.value,
+                message=f"Proxy di-rotate: {new_proxy}",
+            )
+            db.add(log)
+
+            return {
+                "success": True,
+                "proxy_url": new_proxy,
+                "message": f"Proxy berhasil di-refresh: {new_proxy}",
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Tidak ada proxy tersedia saat ini. Coba refresh pool terlebih dahulu.",
+            }
+    except Exception as e:
+        logger.error(f"Proxy refresh error: {e}")
+        raise HTTPException(status_code=500, detail=f"Gagal refresh proxy: {str(e)}")

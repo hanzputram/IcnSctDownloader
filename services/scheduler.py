@@ -26,6 +26,19 @@ class SchedulerService:
     def __init__(self):
         self.scheduler = AsyncIOScheduler()
         self._running_jobs: Dict[int, bool] = {}
+        self.is_paused = False
+
+    def pause(self):
+        """Pause all scheduled jobs."""
+        self.scheduler.pause()
+        self.is_paused = True
+        logger.info("Scheduler paused")
+
+    def resume(self):
+        """Resume all scheduled jobs."""
+        self.scheduler.resume()
+        self.is_paused = False
+        logger.info("Scheduler resumed")
 
     async def start(self):
         """Start the scheduler and load existing jobs from DB."""
