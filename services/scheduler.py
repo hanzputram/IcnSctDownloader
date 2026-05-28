@@ -126,7 +126,7 @@ class SchedulerService:
                 # Import here to avoid circular imports
                 from services.iconscout_browser import browser_manager
 
-                browser = await browser_manager.get_browser(account.id)
+                browser = await browser_manager.get_browser(account.id, proxy_url=account.proxy_url)
 
                 # Decrypt password
                 fernet = config.get_fernet()

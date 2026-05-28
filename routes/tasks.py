@@ -64,7 +64,7 @@ async def _run_download(task_id: int, url: str, format: str, account_id: int):
             fernet = config.get_fernet()
             password = fernet.decrypt(account.encrypted_password.encode()).decode()
 
-            browser = await browser_manager.get_browser(account_id)
+            browser = await browser_manager.get_browser(account_id, proxy_url=account.proxy_url)
 
             # Login if needed
             login_result = await browser.login(account.email, password, account_id)
@@ -202,7 +202,7 @@ async def _run_search_download(keyword: str, asset_type: str, format: str, max_i
             fernet = config.get_fernet()
             password = fernet.decrypt(account.encrypted_password.encode()).decode()
 
-            browser = await browser_manager.get_browser(account_id)
+            browser = await browser_manager.get_browser(account_id, proxy_url=account.proxy_url)
             login_result = await browser.login(account.email, password, account_id)
 
             if not login_result["success"]:

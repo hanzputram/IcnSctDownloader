@@ -44,6 +44,7 @@ class Account(Base):
     encrypted_password = Column(Text, nullable=False)
     cookie_data = Column(Text, nullable=True)
     status = Column(String(20), default=AccountStatus.ACTIVE.value)
+    proxy_url = Column(String(255), nullable=True)
     plan_type = Column(String(50), default="unlimited")
     downloads_count = Column(Integer, default=0)
     last_used = Column(DateTime, nullable=True)

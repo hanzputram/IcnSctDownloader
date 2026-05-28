@@ -28,12 +28,13 @@ class IconScoutBrowser:
     LOGIN_URL = "https://iconscout.com/login"
     SEARCH_URL = "https://iconscout.com/search"
 
-    def __init__(self):
+    def __init__(self, proxy_url: Optional[str] = None):
         self._playwright = None
         self._browser: Optional[Browser] = None
         self._context: Optional[BrowserContext] = None
         self._page: Optional[Page] = None
         self._logged_in = False
+        self._proxy_url = proxy_url
         self._cookie_dir = config.DOWNLOAD_DIR.parent / "data" / "cookies"
         self._cookie_dir.mkdir(parents=True, exist_ok=True)
 
@@ -64,6 +65,11 @@ class IconScoutBrowser:
             ),
             "accept_downloads": True,
         }
+
+        # Apply Proxy if configured for this account
+        if self._proxy_url:
+            context_options["proxy"] = {"server": self._proxy_url}
+            logger.info(f"Using proxy: {self._proxy_url}")
 
         self._context = await self._browser.new_context(**context_options)
 
@@ -566,11 +572,11 @@ class BrowserManager:
         self._browsers: Dict[int, IconScoutBrowser] = {}
         self._lock = asyncio.Lock()
 
-    async def get_browser(self, account_id: int) -> IconScoutBrowser:
+    async def get_browser(self, account_id: int, proxy_url: Optional[str] = None) -> IconScoutBrowser:
         """Get or create a browser instance for an account."""
         async with self._lock:
             if account_id not in self._browsers:
-                self._browsers[account_id] = IconScoutBrowser()
+                self._browsers[account_id] = IconScoutBrowser(proxy_url=proxy_url)
             return self._browsers[account_id]
 
     async def close_browser(self, account_id: int):

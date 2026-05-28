@@ -22,6 +22,7 @@ class AccountCreate(BaseModel):
     email: str
     password: str
     plan_type: str = "unlimited"
+    proxy_url: Optional[str] = None
 
 
 class AccountUpdate(BaseModel):
@@ -29,6 +30,7 @@ class AccountUpdate(BaseModel):
     password: Optional[str] = None
     plan_type: Optional[str] = None
     status: Optional[str] = None
+    proxy_url: Optional[str] = None
 
 
 class AccountResponse(BaseModel):
@@ -37,6 +39,7 @@ class AccountResponse(BaseModel):
     status: str
     plan_type: str
     downloads_count: int
+    proxy_url: Optional[str] = None
     last_used: Optional[str] = None
     created_at: str
 
@@ -60,6 +63,7 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
                 "status": acc.status,
                 "plan_type": acc.plan_type,
                 "downloads_count": acc.downloads_count,
+                "proxy_url": acc.proxy_url,
                 "last_used": acc.last_used.isoformat() if acc.last_used else None,
                 "created_at": acc.created_at.isoformat() if acc.created_at else None,
             }
@@ -86,6 +90,7 @@ async def create_account(data: AccountCreate, db: AsyncSession = Depends(get_db)
         encrypted_password=encrypted_pw,
         plan_type=data.plan_type,
         status=AccountStatus.ACTIVE.value,
+        proxy_url=data.proxy_url if data.proxy_url else None,
     )
     db.add(account)
     await db.flush()
@@ -124,6 +129,8 @@ async def update_account(account_id: int, data: AccountUpdate, db: AsyncSession 
         account.plan_type = data.plan_type
     if data.status is not None:
         account.status = data.status
+    if data.proxy_url is not None:
+        account.proxy_url = data.proxy_url if data.proxy_url else None
 
     account.updated_at = datetime.datetime.utcnow()
 
@@ -160,7 +167,7 @@ async def test_account(account_id: int, db: AsyncSession = Depends(get_db)):
     # Test login
     from services.iconscout_browser import browser_manager
 
-    browser = await browser_manager.get_browser(account.id)
+    browser = await browser_manager.get_browser(account.id, proxy_url=account.proxy_url)
     login_result = await browser.login(account.email, password, account.id)
 
     # Update account status based on result

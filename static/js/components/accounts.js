@@ -41,6 +41,7 @@ async function renderAccounts() {
                                     <tr>
                                         <th>Email</th>
                                         <th>Status</th>
+                                        <th>Proxy</th>
                                         <th>Plan</th>
                                         <th>Downloads</th>
                                         <th>Terakhir Digunakan</th>
@@ -57,6 +58,7 @@ async function renderAccounts() {
                                                 </div>
                                             </td>
                                             <td>${statusBadge(acc.status)}</td>
+                                            <td>${acc.proxy_url ? '<span class="badge badge-success" style="font-size:11px" title="' + acc.proxy_url + '">🛡️ Active</span>' : '<span class="text-muted" style="font-size:11px">Off</span>'}</td>
                                             <td><span class="text-accent">${acc.plan_type}</span></td>
                                             <td><strong>${(acc.downloads_count || 0).toLocaleString()}</strong></td>
                                             <td class="text-muted">${formatDate(acc.last_used)}</td>
@@ -97,6 +99,11 @@ function showAddAccountModal() {
                 <option value="basic">Basic</option>
             </select>
         </div>
+        <div class="form-group mt-2">
+            <label class="form-label">Proxy / VPN URL (Opsional)</label>
+            <input type="text" class="form-input" id="accProxy" placeholder="http://user:pass@ip:port">
+            <small class="text-muted" style="display:block;margin-top:4px">Format: http://ip:port atau socks5://ip:port</small>
+        </div>
     `, `
         <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
         <button class="btn btn-primary" onclick="submitAddAccount()">💾 Simpan</button>
@@ -107,6 +114,7 @@ async function submitAddAccount() {
     const email = document.getElementById('accEmail')?.value?.trim();
     const password = document.getElementById('accPassword')?.value;
     const plan_type = document.getElementById('accPlan')?.value;
+    const proxy_url = document.getElementById('accProxy')?.value?.trim();
 
     if (!email || !password) {
         showToast('Email dan password wajib diisi', 'warning');
@@ -114,7 +122,7 @@ async function submitAddAccount() {
     }
 
     try {
-        const result = await API.post('/api/accounts', { email, password, plan_type });
+        const result = await API.post('/api/accounts', { email, password, plan_type, proxy_url });
         showToast(result.message || 'Account berhasil ditambahkan', 'success');
         closeModal();
         renderAccounts();
@@ -136,6 +144,10 @@ function showEditAccountModal(id) {
         <div class="form-group">
             <label class="form-label">Password Baru (kosongkan jika tidak diubah)</label>
             <input type="password" class="form-input" id="editAccPassword" placeholder="Password baru...">
+        </div>
+        <div class="form-group">
+            <label class="form-label">Proxy / VPN URL (Opsional)</label>
+            <input type="text" class="form-input" id="editAccProxy" value="${acc.proxy_url || ''}" placeholder="http://user:pass@ip:port">
         </div>
         <div class="form-row">
             <div class="form-group">
@@ -167,11 +179,13 @@ async function submitEditAccount(id) {
     const password = document.getElementById('editAccPassword')?.value;
     const plan_type = document.getElementById('editAccPlan')?.value;
     const status = document.getElementById('editAccStatus')?.value;
+    const proxy_url = document.getElementById('editAccProxy')?.value?.trim();
 
     if (email) body.email = email;
     if (password) body.password = password;
     if (plan_type) body.plan_type = plan_type;
     if (status) body.status = status;
+    if (proxy_url !== undefined) body.proxy_url = proxy_url;
 
     try {
         const result = await API.put(`/api/accounts/${id}`, body);
