@@ -14,6 +14,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, TimeoutError as PlaywrightTimeout
+from playwright_stealth import stealth_async
 
 from config import config
 
@@ -79,13 +80,8 @@ class IconScoutBrowser:
 
         self._page = await self._context.new_page()
 
-        # Stealth: mask webdriver detection
-        await self._page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-            window.chrome = { runtime: {} };
-        """)
+        # Stealth: apply playwright-stealth to evade advanced bot detection
+        await stealth_async(self._page)
 
     async def _save_cookies(self, account_id: int):
         """Save cookies for session persistence."""
@@ -135,7 +131,9 @@ class IconScoutBrowser:
                 try:
                     elem = await self._page.wait_for_selector(selector, timeout=3000)
                     if elem:
-                        await elem.fill(email)
+                        await elem.click()  # Human-like focus
+                        await asyncio.sleep(random.uniform(0.3, 1.0))
+                        await elem.type(email, delay=random.randint(50, 150))
                         email_filled = True
                         logger.info(f"Email filled using selector: {selector}")
                         break
@@ -157,7 +155,9 @@ class IconScoutBrowser:
                 try:
                     elem = await self._page.wait_for_selector(selector, timeout=3000)
                     if elem:
-                        await elem.fill(password)
+                        await elem.click()
+                        await asyncio.sleep(random.uniform(0.3, 1.0))
+                        await elem.type(password, delay=random.randint(50, 150))
                         password_filled = True
                         logger.info(f"Password filled using selector: {selector}")
                         break
@@ -181,7 +181,9 @@ class IconScoutBrowser:
                 try:
                     btn = await self._page.wait_for_selector(selector, timeout=3000)
                     if btn:
-                        await btn.click()
+                        await btn.hover()
+                        await asyncio.sleep(random.uniform(0.5, 1.5))
+                        await btn.click(delay=random.randint(50, 150))
                         submitted = True
                         logger.info(f"Login submitted using selector: {selector}")
                         break
@@ -411,7 +413,9 @@ class IconScoutBrowser:
                 try:
                     fmt_btn = await self._page.wait_for_selector(selector, timeout=2000)
                     if fmt_btn:
-                        await fmt_btn.click()
+                        await fmt_btn.hover()
+                        await asyncio.sleep(random.uniform(0.3, 0.8))
+                        await fmt_btn.click(delay=random.randint(50, 150))
                         await asyncio.sleep(1)
                         logger.info(f"Selected format: {format}")
                         break
@@ -425,9 +429,11 @@ class IconScoutBrowser:
                 try:
                     btn = await self._page.wait_for_selector(selector, timeout=3000)
                     if btn:
+                        await btn.hover()
+                        await asyncio.sleep(random.uniform(0.5, 1.5))
                         # Set up download listener
                         async with self._page.expect_download(timeout=30000) as download_info:
-                            await btn.click()
+                            await btn.click(delay=random.randint(50, 150))
 
                         download = await download_info.value
 
